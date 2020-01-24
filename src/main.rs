@@ -1,7 +1,9 @@
 use image::{ImageBuffer, Rgb};
 use indicatif::ParallelProgressIterator;
 use nalgebra_glm::{self as glm, Mat4, Vec2, Vec3};
+use ordered_float::OrderedFloat;
 use rayon::prelude::*;
+use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::error::Error;
 use std::io::{stdin, Cursor, Read};
@@ -165,9 +167,34 @@ impl Rect {
     }
 
     fn contains(&self, vec: &Vec2) -> bool {
-        let horizontal = self.left <= vec.x || self.right >= vec.x;
-        let vertical = self.bottom <= vec.y || self.top >= vec.y;
-        horizontal && vertical
+        self.axis(Axis::X).contains(vec.x) && self.axis(Axis::Y).contains(vec.y)
+    }
+
+    fn axis(&self, axis: Axis) -> LineSegment {
+        match axis {
+            Axis::X => LineSegment::new(self.left, self.right),
+            Axis::Y => LineSegment::new(self.bottom, self.top),
+        }
+    }
+
+    fn center(&self) -> Vec2 {
+        glm::vec2((self.right + self.left) / 2., (self.top + self.bottom) / 2.)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LineSegment {
+    begin: f32,
+    end: f32,
+}
+
+impl LineSegment {
+    fn new(begin: f32, end: f32) -> Self {
+        LineSegment { begin, end }
+    }
+
+    fn contains(&self, scalar: f32) -> bool {
+        self.begin <= scalar && self.end >= scalar
     }
 }
 
@@ -213,7 +240,8 @@ impl Camera {
 
     fn render(&self, scene: &Scene) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
         let world_to_projection = self.projection * self.transform;
-        let finder = ProjectionVec::new(world_to_projection, scene);
+        let projection_vec = ProjectionVec::new(world_to_projection, scene);
+        let finder = LineOrientedFinder::new(projection_vec, 200, Axis::X);
 
         let buffer = Mutex::new(ImageBuffer::from_pixel(WIDTH, HEIGHT, Rgb([0, 0, 0])));
 
@@ -242,18 +270,16 @@ impl Camera {
             negative_one_to_one
         };
 
-        // let triangle = projection_triangles.iter().find(|t| t.contains(point));
-
         let value = match finder.triangle_at(point) {
-            Some(_) => 255,
-            None => 0,
+            true => 255,
+            false => 0,
         };
         Rgb([value, value, value])
     }
 }
 
 trait TriangleFinder {
-    fn triangle_at(&self, point: Vec2) -> Option<Triangle>;
+    fn triangle_at(&self, point: Vec2) -> bool;
 }
 
 struct ProjectionVec(Vec<Triangle>);
@@ -266,10 +292,91 @@ impl ProjectionVec {
             .collect();
         ProjectionVec(projection_triangles)
     }
+
+    fn empty() -> ProjectionVec {
+        ProjectionVec(Vec::new())
+    }
 }
 
 impl TriangleFinder for ProjectionVec {
-    fn triangle_at(&self, point: Vec2) -> Option<Triangle> {
-        self.0.iter().find(|t| t.contains(point)).cloned()
+    fn triangle_at(&self, point: Vec2) -> bool {
+        self.0.iter().any(|t| t.contains(point))
+    }
+}
+
+struct LineOrientedFinder {
+    map: BTreeMap<OrderedFloat<f32>, ProjectionVec>,
+    axis: Axis,
+}
+
+impl LineOrientedFinder {
+    fn new(full_projection_vec: ProjectionVec, triangles_per_slice: usize, axis: Axis) -> Self {
+        let mut bounding_box_center_scalars: Vec<_> = full_projection_vec
+            .0
+            .iter()
+            .map(|t| OrderedFloat(axis.from_point(t.xy_bounding_box().center())))
+            .collect();
+        bounding_box_center_scalars.sort();
+
+        let lines = bounding_box_center_scalars
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| index % triangles_per_slice == 0)
+            .map(|tuple| tuple.1)
+            .chain(bounding_box_center_scalars.last().into_iter());
+
+        let mut map = BTreeMap::new();
+        for scalar in lines {
+            let relevant_triangles = full_projection_vec
+                .0
+                .iter()
+                .filter(|t| t.xy_bounding_box().axis(axis).contains(scalar.0))
+                .cloned()
+                .collect();
+            map.insert(*scalar, ProjectionVec(relevant_triangles));
+        }
+
+        LineOrientedFinder { map, axis }
+    }
+}
+
+impl TriangleFinder for LineOrientedFinder {
+    fn triangle_at(&self, point: Vec2) -> bool {
+        let scalar = self.axis.from_point(point);
+
+        let above = self.map.range(OrderedFloat(scalar)..).map(|t| t.1).next();
+        let below = self
+            .map
+            .range(..OrderedFloat(scalar))
+            .map(|t| t.1)
+            .next_back();
+
+        if let Some(above) = above {
+            if above.triangle_at(point) {
+                return true;
+            }
+        }
+        if let Some(below) = below {
+            if below.triangle_at(point) {
+                return true;
+            }
+        }
+
+        false
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Axis {
+    X,
+    Y,
+}
+
+impl Axis {
+    fn from_point(self, point: Vec2) -> f32 {
+        match self {
+            Self::X => point.x,
+            Self::Y => point.y,
+        }
     }
 }
