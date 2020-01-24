@@ -20,23 +20,37 @@ fn main() -> Result<()> {
     let mesh = parse_mesh(&stdin)?;
     let scene = Scene::new(vec![PlacedMesh::new(
         mesh,
-        glm::translation(&glm::vec3(0., 0., -5.)) * glm::scaling(&glm::vec3(0.1, 0.1, 0.1)),
+        glm::translation(&glm::vec3(0., 0., 0.))
+            * glm::rotation(glm::half_pi(), &glm::vec3(1., 0., 0.))
+            * glm::scaling(&glm::vec3(0.05, 0.05, 0.05)),
     )]);
-    let camera = Camera::new(
+
+    let mut camera = Camera::new(
         glm::look_at(
             &glm::vec3(0., 2., 0.),
-            &glm::vec3(0., 0., -5.),
+            &glm::vec3(0., 0., 0.),
             &glm::vec3(0., 1., 0.),
         ),
         glm::perspective(
             WIDTH as f32 / HEIGHT as f32, // aspect
-            glm::half_pi(),               // fovy
-            0.01,                         // near clipping plane
-            10000.,                       // far clipping plane
+            glm::half_pi::<f32>() * 0.8,  // fovy
+            0.1,                          // near clipping plane
+            100.,                         // far clipping plane
         ),
     );
-    let image = camera.render(&scene);
-    image.save_with_format("/dev/stdout", image::ImageFormat::PNG)?;
+
+    for z in 0..10 {
+        let z = z as f32 * 100.;
+        camera.transform = glm::look_at(
+            &glm::vec3(0., 2., z + 10.),
+            &glm::vec3(0., 0., 0.),
+            &glm::vec3(0., 1., 0.),
+        );
+        dbg!(camera.transform);
+
+        let image = camera.render(&scene);
+        image.save_with_format("/tmp/image.png", image::ImageFormat::PNG)?;
+    }
     Ok(())
 }
 
