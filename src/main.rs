@@ -11,8 +11,6 @@ use stl_io::IndexedMesh;
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 720;
 
-const SCALE_FACTOR: f32 = 32.0;
-
 type Result<T> = core::result::Result<T, Box<dyn Error>>;
 
 fn main() -> Result<()> {
