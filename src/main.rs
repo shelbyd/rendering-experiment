@@ -1,7 +1,11 @@
 use image::{ImageBuffer, Rgb};
+use indicatif::ParallelProgressIterator;
 use nalgebra_glm::{self as glm, Mat4, Vec2, Vec3};
+use rayon::prelude::*;
+use std::convert::TryInto;
 use std::error::Error;
 use std::io::{stdin, Cursor, Read};
+use std::sync::Mutex;
 use stl_io::IndexedMesh;
 
 const WIDTH: u32 = 1280;
@@ -165,12 +169,22 @@ impl Camera {
             .map(|t| &t * world_to_projection)
             .collect();
 
-        let render_progress = indicatif::ProgressBar::new((WIDTH * HEIGHT).into());
-        ImageBuffer::from_fn(WIDTH, HEIGHT, |x, y| {
-            let rendered = self.render_point(x, y, &projection_triangles);
-            render_progress.inc(1);
-            rendered
-        })
+        let mut buffer = Mutex::new(ImageBuffer::from_pixel(WIDTH, HEIGHT, Rgb([0, 0, 0])));
+        let height = buffer.lock().unwrap().height();
+        (0..height).into_par_iter().progress().for_each(|y| {
+            let mut row_buffer = Vec::with_capacity(WIDTH.try_into().unwrap());
+            row_buffer.resize(WIDTH as usize, Rgb([0, 0, 0]));
+
+            for (x, pixel) in row_buffer.iter_mut().enumerate() {
+                *pixel = self.render_point(x.try_into().unwrap(), y, &projection_triangles);
+            }
+
+            let mut buffer = buffer.lock().unwrap();
+            for (x, pixel) in row_buffer.into_iter().enumerate() {
+                buffer.put_pixel(x.try_into().unwrap(), y, pixel);
+            }
+        });
+        buffer.into_inner().unwrap()
     }
 
     fn render_point(&self, x: u32, y: u32, projection_triangles: &[Triangle]) -> Rgb<u8> {
