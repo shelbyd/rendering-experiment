@@ -16,9 +16,22 @@ fn main() -> Result<()> {
     let mesh = parse_mesh(&stdin)?;
     let scene = Scene::new(vec![PlacedMesh::new(
         mesh,
-        glm::translation(&glm::vec3(0., 0., -5.)),
+        glm::translation(&glm::vec3(0., 0., -5.)) * glm::scaling(&glm::vec3(0.1, 0.1, 0.1)),
     )]);
-    let image = render(&scene)?;
+    let camera = Camera::new(
+        glm::look_at(
+            &glm::vec3(0., 2., 0.),
+            &glm::vec3(0., 0., -5.),
+            &glm::vec3(0., 1., 0.),
+        ),
+        glm::perspective(
+            (WIDTH as f32 / HEIGHT as f32), // aspect
+            glm::half_pi(),                 // fovy
+            0.01,                           // near clipping plane
+            10000.,                         // far clipping plane
+        ),
+    );
+    let image = camera.render(&scene);
     image.save_with_format("/dev/stdout", image::ImageFormat::PNG)?;
     Ok(())
 }
@@ -34,19 +47,6 @@ fn parse_mesh(bytes: &[u8]) -> Result<TriangleMesh> {
     let mesh = stl_io::read_stl(&mut reader)?;
     mesh.validate()?;
     Ok(TriangleMesh::from(mesh))
-}
-
-fn render(scene: &Scene) -> Result<ImageBuffer<Rgb<u8>, Vec<u8>>> {
-    Ok(ImageBuffer::from_fn(WIDTH, HEIGHT, |x, y| {
-        let point = {
-            let window_coords = Vec2::new(x as f32, y as f32);
-            let centered = window_coords - Vec2::new((WIDTH / 2) as f32, (HEIGHT / 2) as f32);
-            centered / SCALE_FACTOR
-        };
-        let contains = scene.triangles().any(|t| t.contains(&point));
-        let value = if contains { 255 } else { 0 };
-        Rgb([value, value, value])
-    }))
 }
 
 struct TriangleMesh {
@@ -78,6 +78,7 @@ impl From<IndexedMesh> for TriangleMesh {
     }
 }
 
+#[derive(Debug)]
 struct Triangle {
     normal: Vec3,
     vertices: [Vec3; 3],
@@ -85,9 +86,9 @@ struct Triangle {
 
 impl Triangle {
     fn contains(&self, p: &Vec2) -> bool {
-        let p0 = self.vertices[0].xz();
-        let p1 = self.vertices[1].xz();
-        let p2 = self.vertices[2].xz();
+        let p0 = self.vertices[0].xy();
+        let p1 = self.vertices[1].xy();
+        let p2 = self.vertices[2].xy();
 
         let A = 0.5 * (-p1.y * p2.x + p0.y * (-p1.x + p2.x) + p0.x * (p1.y - p2.y) + p1.x * p2.y);
         let sign = if A < 0.0 { -1.0 } else { 1.0 };
@@ -141,5 +142,37 @@ struct PlacedMesh {
 impl PlacedMesh {
     fn new(mesh: TriangleMesh, transform: Mat4) -> Self {
         PlacedMesh { mesh, transform }
+    }
+}
+
+struct Camera {
+    transform: Mat4,
+    projection: Mat4,
+}
+
+impl Camera {
+    fn new(transform: Mat4, projection: Mat4) -> Self {
+        Camera {
+            transform,
+            projection,
+        }
+    }
+
+    fn render(&self, scene: &Scene) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
+        ImageBuffer::from_fn(WIDTH, HEIGHT, |x, y| {
+            let point = {
+                let window_coords = Vec2::new(x as f32 / WIDTH as f32, y as f32 / HEIGHT as f32);
+                let negative_one_to_one = (window_coords - Vec2::new(0.5, 0.5)) * 2.;
+                negative_one_to_one
+            };
+
+            let world_to_projection = self.projection * self.transform;
+            let contains = scene
+                .triangles()
+                .any(|t| (&t * world_to_projection).contains(&point));
+
+            let value = if contains { 255 } else { 0 };
+            Rgb([value, value, value])
+        })
     }
 }
