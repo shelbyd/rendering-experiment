@@ -25,10 +25,10 @@ fn main() -> Result<()> {
             &glm::vec3(0., 1., 0.),
         ),
         glm::perspective(
-            (WIDTH as f32 / HEIGHT as f32), // aspect
-            glm::half_pi(),                 // fovy
-            0.01,                           // near clipping plane
-            10000.,                         // far clipping plane
+            WIDTH as f32 / HEIGHT as f32, // aspect
+            glm::half_pi(),               // fovy
+            0.01,                         // near clipping plane
+            10000.,                       // far clipping plane
         ),
     );
     let image = camera.render(&scene);
@@ -159,23 +159,30 @@ impl Camera {
     }
 
     fn render(&self, scene: &Scene) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
-        let progress = indicatif::ProgressBar::new((WIDTH * HEIGHT).into());
+        let world_to_projection = self.projection * self.transform;
+        let projection_triangles: Vec<_> = scene
+            .triangles()
+            .map(|t| &t * world_to_projection)
+            .collect();
 
+        let render_progress = indicatif::ProgressBar::new((WIDTH * HEIGHT).into());
         ImageBuffer::from_fn(WIDTH, HEIGHT, |x, y| {
-            let point = {
-                let window_coords = Vec2::new(x as f32 / WIDTH as f32, y as f32 / HEIGHT as f32);
-                let negative_one_to_one = (window_coords - Vec2::new(0.5, 0.5)) * 2.;
-                negative_one_to_one
-            };
-
-            let world_to_projection = self.projection * self.transform;
-            let contains = scene
-                .triangles()
-                .any(|t| (&t * world_to_projection).contains(&point));
-
-            let value = if contains { 255 } else { 0 };
-            progress.inc(1);
-            Rgb([value, value, value])
+            let rendered = self.render_point(x, y, &projection_triangles);
+            render_progress.inc(1);
+            rendered
         })
+    }
+
+    fn render_point(&self, x: u32, y: u32, projection_triangles: &[Triangle]) -> Rgb<u8> {
+        let point = {
+            let window_coords = Vec2::new(x as f32 / WIDTH as f32, y as f32 / HEIGHT as f32);
+            let negative_one_to_one = (window_coords - Vec2::new(0.5, 0.5)) * 2.;
+            negative_one_to_one
+        };
+
+        let contains = projection_triangles.iter().any(|t| t.contains(&point));
+
+        let value = if contains { 255 } else { 0 };
+        Rgb([value, value, value])
     }
 }
