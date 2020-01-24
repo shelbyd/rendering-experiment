@@ -1,10 +1,13 @@
 use image::{ImageBuffer, Rgb};
+use nalgebra_glm::{self as glm, Vec2, Vec3};
 use std::error::Error;
 use std::io::{stdin, Cursor, Read};
 use stl_io::IndexedMesh;
 
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 720;
+
+const SCALE_FACTOR: f32 = 32.0;
 
 type Result<T> = core::result::Result<T, Box<dyn Error>>;
 
@@ -29,9 +32,45 @@ fn parse_mesh(bytes: &[u8]) -> Result<IndexedMesh> {
     Ok(mesh)
 }
 
-fn render(_mesh: &IndexedMesh) -> Result<ImageBuffer<Rgb<u8>, Vec<u8>>> {
+fn render(mesh: &IndexedMesh) -> Result<ImageBuffer<Rgb<u8>, Vec<u8>>> {
     Ok(ImageBuffer::from_fn(WIDTH, HEIGHT, |x, y| {
-        let sum = (x + y) as u8;
-        Rgb([sum, sum, sum])
+        let point = {
+            let window_coords = Vec2::new(x as f32, y as f32);
+            let centered = window_coords - Vec2::new((WIDTH / 2) as f32, (HEIGHT / 2) as f32);
+            centered / SCALE_FACTOR
+        };
+        let contains = triangles(mesh).any(|t| t.contains(&point));
+        let value = if contains { 255 } else { 0 };
+        Rgb([value, value, value])
     }))
+}
+
+fn triangles(mesh: &IndexedMesh) -> impl Iterator<Item = Triangle> + '_ {
+    mesh.faces.iter().map(move |face| Triangle {
+        normal: Vec3::from(face.normal),
+        vertices: [
+            Vec3::from(mesh.vertices[face.vertices[0]]),
+            Vec3::from(mesh.vertices[face.vertices[1]]),
+            Vec3::from(mesh.vertices[face.vertices[2]]),
+        ],
+    })
+}
+
+struct Triangle {
+    normal: Vec3,
+    vertices: [Vec3; 3],
+}
+
+impl Triangle {
+    fn contains(&self, p: &Vec2) -> bool {
+        let p0 = self.vertices[0].xz();
+        let p1 = self.vertices[1].xz();
+        let p2 = self.vertices[2].xz();
+
+        let A = 0.5 * (-p1.y * p2.x + p0.y * (-p1.x + p2.x) + p0.x * (p1.y - p2.y) + p1.x * p2.y);
+        let sign = if A < 0.0 { -1.0 } else { 1.0 };
+        let s = (p0.y * p2.x - p0.x * p2.y + (p2.y - p0.y) * p.x + (p0.x - p2.x) * p.y) * sign;
+        let t = (p0.x * p1.y - p0.y * p1.x + (p0.y - p1.y) * p.x + (p1.x - p0.x) * p.y) * sign;
+        s > 0.0 && t > 0.0 && (s + t) < 2.0 * A * sign
+    }
 }
