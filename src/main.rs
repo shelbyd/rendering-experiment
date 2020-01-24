@@ -82,7 +82,7 @@ impl From<IndexedMesh> for TriangleMesh {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Triangle {
     normal: Vec3,
     vertices: [Vec3; 3],
@@ -93,7 +93,7 @@ impl Triangle {
         Triangle { normal, vertices }
     }
 
-    fn contains(&self, p: &Vec2) -> bool {
+    fn contains(&self, p: Vec2) -> bool {
         let p0 = self.vertices[0];
         let p1 = self.vertices[1];
         let p2 = self.vertices[2];
@@ -213,10 +213,7 @@ impl Camera {
 
     fn render(&self, scene: &Scene) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
         let world_to_projection = self.projection * self.transform;
-        let projection_triangles: Vec<_> = scene
-            .triangles()
-            .map(|t| &t * world_to_projection)
-            .collect();
+        let finder = ProjectionVec::new(world_to_projection, scene);
 
         let buffer = Mutex::new(ImageBuffer::from_pixel(WIDTH, HEIGHT, Rgb([0, 0, 0])));
 
@@ -226,7 +223,7 @@ impl Camera {
             row_buffer.resize(WIDTH as usize, Rgb([0, 0, 0]));
 
             for (x, pixel) in row_buffer.iter_mut().enumerate() {
-                *pixel = self.render_point(x.try_into().unwrap(), y, &projection_triangles);
+                *pixel = self.render_point(x.try_into().unwrap(), y, &finder);
             }
 
             let mut buffer = buffer.lock().unwrap();
@@ -238,16 +235,41 @@ impl Camera {
         buffer.into_inner().unwrap()
     }
 
-    fn render_point(&self, x: u32, y: u32, projection_triangles: &[Triangle]) -> Rgb<u8> {
+    fn render_point(&self, x: u32, y: u32, finder: &impl TriangleFinder) -> Rgb<u8> {
         let point = {
             let window_coords = Vec2::new(x as f32 / WIDTH as f32, y as f32 / HEIGHT as f32);
             let negative_one_to_one = (window_coords - Vec2::new(0.5, 0.5)) * 2.;
             negative_one_to_one
         };
 
-        let contains = projection_triangles.iter().any(|t| t.contains(&point));
+        // let triangle = projection_triangles.iter().find(|t| t.contains(point));
 
-        let value = if contains { 255 } else { 0 };
+        let value = match finder.triangle_at(point) {
+            Some(_) => 255,
+            None => 0,
+        };
         Rgb([value, value, value])
+    }
+}
+
+trait TriangleFinder {
+    fn triangle_at(&self, point: Vec2) -> Option<Triangle>;
+}
+
+struct ProjectionVec(Vec<Triangle>);
+
+impl ProjectionVec {
+    fn new(world_to_projection: Mat4, scene: &Scene) -> Self {
+        let projection_triangles: Vec<_> = scene
+            .triangles()
+            .map(|t| &t * world_to_projection)
+            .collect();
+        ProjectionVec(projection_triangles)
+    }
+}
+
+impl TriangleFinder for ProjectionVec {
+    fn triangle_at(&self, point: Vec2) -> Option<Triangle> {
+        self.0.iter().find(|t| t.contains(point)).cloned()
     }
 }
