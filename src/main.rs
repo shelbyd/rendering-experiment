@@ -25,35 +25,53 @@ fn full_stdin() -> Result<Vec<u8>> {
     Ok(vec)
 }
 
-fn parse_mesh(bytes: &[u8]) -> Result<IndexedMesh> {
+fn parse_mesh(bytes: &[u8]) -> Result<TriangleMesh> {
     let mut reader = Cursor::new(bytes);
     let mesh = stl_io::read_stl(&mut reader)?;
     mesh.validate()?;
-    Ok(mesh)
+    Ok(TriangleMesh::from(mesh))
 }
 
-fn render(mesh: &IndexedMesh) -> Result<ImageBuffer<Rgb<u8>, Vec<u8>>> {
+fn render(mesh: &TriangleMesh) -> Result<ImageBuffer<Rgb<u8>, Vec<u8>>> {
     Ok(ImageBuffer::from_fn(WIDTH, HEIGHT, |x, y| {
         let point = {
             let window_coords = Vec2::new(x as f32, y as f32);
             let centered = window_coords - Vec2::new((WIDTH / 2) as f32, (HEIGHT / 2) as f32);
             centered / SCALE_FACTOR
         };
-        let contains = triangles(mesh).any(|t| t.contains(&point));
+        let contains = mesh.triangles().any(|t| t.contains(&point));
         let value = if contains { 255 } else { 0 };
         Rgb([value, value, value])
     }))
 }
 
-fn triangles(mesh: &IndexedMesh) -> impl Iterator<Item = Triangle> + '_ {
-    mesh.faces.iter().map(move |face| Triangle {
-        normal: Vec3::from(face.normal),
-        vertices: [
-            Vec3::from(mesh.vertices[face.vertices[0]]),
-            Vec3::from(mesh.vertices[face.vertices[1]]),
-            Vec3::from(mesh.vertices[face.vertices[2]]),
-        ],
-    })
+struct TriangleMesh {
+    triangles: Vec<Triangle>,
+}
+
+impl TriangleMesh {
+    fn triangles(&self) -> impl Iterator<Item = &Triangle> {
+        self.triangles.iter()
+    }
+}
+
+impl From<IndexedMesh> for TriangleMesh {
+    fn from(indexed: IndexedMesh) -> Self {
+        let triangles = indexed
+            .faces
+            .iter()
+            .map(|face| Triangle {
+                normal: Vec3::from(face.normal),
+                vertices: [
+                    Vec3::from(indexed.vertices[face.vertices[0]]),
+                    Vec3::from(indexed.vertices[face.vertices[1]]),
+                    Vec3::from(indexed.vertices[face.vertices[2]]),
+                ],
+            })
+            .collect();
+
+        TriangleMesh { triangles }
+    }
 }
 
 struct Triangle {
