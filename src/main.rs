@@ -66,13 +66,15 @@ impl From<IndexedMesh> for TriangleMesh {
         let triangles = indexed
             .faces
             .iter()
-            .map(|face| Triangle {
-                normal: Vec3::from(face.normal),
-                vertices: [
-                    Vec3::from(indexed.vertices[face.vertices[0]]),
-                    Vec3::from(indexed.vertices[face.vertices[1]]),
-                    Vec3::from(indexed.vertices[face.vertices[2]]),
-                ],
+            .map(|face| {
+                Triangle::new(
+                    Vec3::from(face.normal),
+                    [
+                        Vec3::from(indexed.vertices[face.vertices[0]]),
+                        Vec3::from(indexed.vertices[face.vertices[1]]),
+                        Vec3::from(indexed.vertices[face.vertices[2]]),
+                    ],
+                )
             })
             .collect();
 
@@ -87,16 +89,25 @@ struct Triangle {
 }
 
 impl Triangle {
-    fn contains(&self, p: &Vec2) -> bool {
-        let p0 = self.vertices[0].xy();
-        let p1 = self.vertices[1].xy();
-        let p2 = self.vertices[2].xy();
+    fn new(normal: Vec3, vertices: [Vec3; 3]) -> Triangle {
+        Triangle { normal, vertices }
+    }
 
-        let A = 0.5 * (-p1.y * p2.x + p0.y * (-p1.x + p2.x) + p0.x * (p1.y - p2.y) + p1.x * p2.y);
-        let sign = if A < 0.0 { -1.0 } else { 1.0 };
+    fn contains(&self, p: &Vec2) -> bool {
+        let p0 = self.vertices[0];
+        let p1 = self.vertices[1];
+        let p2 = self.vertices[2];
+
+        let area =
+            0.5 * (-p1.y * p2.x + p0.y * (-p1.x + p2.x) + p0.x * (p1.y - p2.y) + p1.x * p2.y);
+        let sign = if area < 0.0 { -1.0 } else { 1.0 };
         let s = (p0.y * p2.x - p0.x * p2.y + (p2.y - p0.y) * p.x + (p0.x - p2.x) * p.y) * sign;
         let t = (p0.x * p1.y - p0.y * p1.x + (p0.y - p1.y) * p.x + (p1.x - p0.x) * p.y) * sign;
-        s > 0.0 && t > 0.0 && (s + t) < 2.0 * A * sign
+        s > 0.0 && t > 0.0 && (s + t) < 2.0 * area * sign
+    }
+
+    fn xy_bounding_box(&self) -> Rect {
+        Rect::covering(self.vertices.iter().map(|v| v.xy()))
     }
 }
 
@@ -109,14 +120,54 @@ impl core::ops::Mul<Mat4> for &Triangle {
             vec4.w = 1.;
             glm::vec4_to_vec3(&(rhs * vec4))
         };
-        Triangle {
-            normal: mul(self.normal),
-            vertices: [
+        Triangle::new(
+            mul(self.normal),
+            [
                 mul(self.vertices[0]),
                 mul(self.vertices[1]),
                 mul(self.vertices[2]),
             ],
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct Rect {
+    top: f32,
+    bottom: f32,
+    left: f32,
+    right: f32,
+}
+
+impl Rect {
+    fn covering(vecs: impl Iterator<Item = Vec2>) -> Rect {
+        let mut rect = Rect::default();
+        for vec in vecs {
+            rect.cover(vec);
         }
+        rect
+    }
+
+    fn cover(&mut self, vec: Vec2) {
+        if vec.x > self.right {
+            self.right = vec.x;
+        }
+        if vec.x < self.left {
+            self.left = vec.x;
+        }
+
+        if vec.y > self.top {
+            self.top = vec.y;
+        }
+        if vec.y < self.bottom {
+            self.bottom = vec.y;
+        }
+    }
+
+    fn contains(&self, vec: &Vec2) -> bool {
+        let horizontal = self.left <= vec.x || self.right >= vec.x;
+        let vertical = self.bottom <= vec.y || self.top >= vec.y;
+        horizontal && vertical
     }
 }
 
@@ -167,7 +218,8 @@ impl Camera {
             .map(|t| &t * world_to_projection)
             .collect();
 
-        let mut buffer = Mutex::new(ImageBuffer::from_pixel(WIDTH, HEIGHT, Rgb([0, 0, 0])));
+        let buffer = Mutex::new(ImageBuffer::from_pixel(WIDTH, HEIGHT, Rgb([0, 0, 0])));
+
         let height = buffer.lock().unwrap().height();
         (0..height).into_par_iter().progress().for_each(|y| {
             let mut row_buffer = Vec::with_capacity(WIDTH.try_into().unwrap());
@@ -182,6 +234,7 @@ impl Camera {
                 buffer.put_pixel(x.try_into().unwrap(), y, pixel);
             }
         });
+
         buffer.into_inner().unwrap()
     }
 
