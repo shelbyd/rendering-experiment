@@ -159,6 +159,8 @@ impl Camera {
     }
 
     fn render(&self, scene: &Scene) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
+        let progress = indicatif::ProgressBar::new((WIDTH * HEIGHT).into());
+
         ImageBuffer::from_fn(WIDTH, HEIGHT, |x, y| {
             let point = {
                 let window_coords = Vec2::new(x as f32 / WIDTH as f32, y as f32 / HEIGHT as f32);
@@ -172,6 +174,7 @@ impl Camera {
                 .any(|t| (&t * world_to_projection).contains(&point));
 
             let value = if contains { 255 } else { 0 };
+            progress.inc(1);
             Rgb([value, value, value])
         })
     }
