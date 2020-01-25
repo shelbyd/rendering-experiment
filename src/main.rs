@@ -72,7 +72,6 @@ fn parse_mesh(bytes: &[u8]) -> Result<TriangleMesh> {
     Ok(TriangleMesh::from(mesh))
 }
 
-
 trait Renderer {
     fn render(&self, camera: &Camera, scene: &Scene) -> ImageBuffer<Rgb<u8>, Vec<u8>>;
 }
@@ -99,7 +98,7 @@ impl Renderer for RayTracing {
     fn render(&self, camera: &Camera, scene: &Scene) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
         let world_to_projection = camera.projection * camera.transform;
         let projection_vec = ProjectionVec::new(world_to_projection, scene);
-        let finder = LineOrientedFinder::new(projection_vec, 200, Axis::X);
+        let finder = LineOrientedFinder::new(projection_vec, 20, Axis::Y);
 
         let buffer = Mutex::new(ImageBuffer::from_pixel(WIDTH, HEIGHT, Rgb([0, 0, 0])));
 
@@ -167,17 +166,23 @@ impl LineOrientedFinder {
             .enumerate()
             .filter(|(index, _)| index % triangles_per_slice == 0)
             .map(|tuple| tuple.1)
-            .chain(bounding_box_center_scalars.last().into_iter());
+            .chain(bounding_box_center_scalars.last().into_iter())
+            .collect::<Vec<_>>();
 
         let mut map = BTreeMap::new();
-        for scalar in lines {
+        for range in lines.windows(2) {
+            let (start, end) = (range[0].0, range[1].0);
             let relevant_triangles = full_projection_vec
                 .0
                 .iter()
-                .filter(|t| t.xy_bounding_box().axis(axis).contains(scalar.0))
+                .filter(|t| t.xy_bounding_box().axis(axis).intersects(start, end))
                 .cloned()
                 .collect();
-            map.insert(*scalar, ProjectionVec(relevant_triangles));
+
+            map.insert(
+                OrderedFloat((start + end) / 2.),
+                ProjectionVec(relevant_triangles),
+            );
         }
 
         LineOrientedFinder { map, axis }

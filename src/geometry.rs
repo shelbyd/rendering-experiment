@@ -68,7 +68,15 @@ pub struct Rect {
 
 impl Rect {
     fn covering(mut vecs: impl Iterator<Item = Vec2>) -> Rect {
-        let mut rect = Rect::default();
+        let mut rect = match vecs.next() {
+            None => Rect::default(),
+            Some(v) => Rect {
+                top: v.y,
+                bottom: v.y,
+                left: v.x,
+                right: v.x,
+            },
+        };
         for vec in vecs {
             rect.cover(vec);
         }
@@ -115,11 +123,23 @@ pub struct LineSegment {
 
 impl LineSegment {
     fn new(begin: f32, end: f32) -> Self {
+        debug_assert!(begin <= end);
         LineSegment { begin, end }
     }
 
     pub fn contains(&self, scalar: f32) -> bool {
         self.begin <= scalar && self.end >= scalar
+    }
+
+    pub fn intersects(&self, begin: f32, end: f32) -> bool {
+        debug_assert!(begin <= end);
+        if end < self.begin {
+            return false;
+        }
+        if begin > self.end {
+            return false;
+        }
+        true
     }
 }
 
