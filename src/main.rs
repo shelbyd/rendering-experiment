@@ -1,6 +1,6 @@
 use image::{ImageBuffer, Rgb};
 use indicatif::ParallelProgressIterator;
-use nalgebra_glm::{self as glm, Mat4, Vec2, Vec3};
+use nalgebra_glm::{self as glm, Mat4, Vec2};
 use ordered_float::OrderedFloat;
 use rayon::prelude::*;
 use std::collections::BTreeMap;
@@ -8,7 +8,6 @@ use std::convert::TryInto;
 use std::error::Error;
 use std::io::{stdin, Cursor, Read};
 use std::sync::Mutex;
-use stl_io::IndexedMesh;
 
 mod geometry;
 use crate::geometry::*;
@@ -134,10 +133,6 @@ impl ProjectionVec {
             .map(|t| &t * world_to_projection)
             .collect();
         ProjectionVec(projection_triangles)
-    }
-
-    fn empty() -> ProjectionVec {
-        ProjectionVec(Vec::new())
     }
 }
 

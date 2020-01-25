@@ -1,12 +1,4 @@
-use image::{ImageBuffer, Rgb};
-use indicatif::ParallelProgressIterator;
-use nalgebra_glm::{self as glm, Mat4, Vec2, Vec3};
-use ordered_float::OrderedFloat;
-use std::collections::BTreeMap;
-use std::convert::TryInto;
-use std::error::Error;
-use std::io::{stdin, Cursor, Read};
-use std::sync::Mutex;
+use nalgebra_glm::{Mat4, Vec3};
 use stl_io::IndexedMesh;
 
 use crate::geometry::*;
