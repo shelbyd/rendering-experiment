@@ -44,16 +44,20 @@ fn main() -> Result<()> {
         ),
     );
 
-    for z in 0..1 {
-        let z = z as f32 * 100.;
+    let steps = 25;
+    for step in 0..=steps {
+        let radians = (step as f32 / steps as f32) * glm::two_pi::<f32>();
+        let (sin, cos) = radians.sin_cos();
+        let distance = 10.;
+
         camera.transform = glm::look_at(
-            &glm::vec3(0., 2., z + 10.),
+            &glm::vec3(cos * distance, sin * distance, 20.),
             &glm::vec3(0., 0., 0.),
             &glm::vec3(0., 1., 0.),
         );
 
         let image = RayTracing.render(&camera, &scene);
-        image.save_with_format("/tmp/image.png", image::ImageFormat::PNG)?;
+        image.save_with_format("target/image.png", image::ImageFormat::PNG)?;
     }
     Ok(())
 }
